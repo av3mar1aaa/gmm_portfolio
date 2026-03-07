@@ -121,7 +121,9 @@
   <div id="password-modal" style="display:none;">
     <div id="password-box">
       <h3>Вход в редактор</h3>
-      <input type="password" id="password-input" placeholder="Пароль" autocomplete="off">
+      <input type="password" id="password-input" placeholder="Пароль редактора" autocomplete="off">
+      <input type="password" id="github-token-input" placeholder="GitHub токен (для загрузки файлов)" autocomplete="off">
+      <p id="token-hint">Нужен для сохранения фото. <a href="https://github.com/settings/tokens/new?scopes=repo&description=portfolio" target="_blank" style="color:#4af;">Создать токен</a></p>
       <div id="password-error"></div>
       <div id="password-buttons">
         <button id="password-cancel">Отмена</button>
@@ -257,6 +259,7 @@
     </div>
   </div>
 
+  <script src="cloud-config.js"></script>
   <script src="editor.js"></script>
 </body>
 </html>

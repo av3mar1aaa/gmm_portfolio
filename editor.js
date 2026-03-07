@@ -148,12 +148,15 @@
   // --- Password modal ---
   var passwordModal = document.getElementById('password-modal');
   var passwordInput = document.getElementById('password-input');
+  var githubTokenInput = document.getElementById('github-token-input');
   var passwordError = document.getElementById('password-error');
   var passwordSubmit = document.getElementById('password-submit');
   var passwordCancel = document.getElementById('password-cancel');
+  var githubToken = localStorage.getItem('gh-token') || '';
 
   function showPasswordModal() {
     passwordInput.value = '';
+    githubTokenInput.value = githubToken;
     passwordError.textContent = '';
     passwordModal.style.display = 'flex';
     setTimeout(function () { passwordInput.focus(); }, 50);
@@ -174,6 +177,12 @@
       return;
     }
     authenticated = true;
+    // Сохранить GitHub токен
+    var token = githubTokenInput.value.trim();
+    if (token) {
+      githubToken = token;
+      localStorage.setItem('gh-token', token);
+    }
     hidePasswordModal();
     enterEditMode();
   }
@@ -182,6 +191,9 @@
   passwordInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') tryPassword();
     if (e.key === 'Escape') hidePasswordModal();
+  });
+  githubTokenInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') tryPassword();
   });
   passwordCancel.addEventListener('click', hidePasswordModal);
   passwordModal.addEventListener('click', function (e) {
@@ -536,11 +548,67 @@
   btnReset.addEventListener('click', function () {
     if (confirm('Сбросить все изменения? Вернуть сайт к исходному виду?')) {
       localStorage.removeItem('portfolio-state');
+      if (githubToken) {
+        // Удаляем state.json из репо
+        fetch(ghApiUrl('data/state.json'), { headers: ghHeaders() })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (f) {
+            if (f && f.sha) {
+              return fetch(ghApiUrl('data/state.json'), {
+                method: 'DELETE',
+                headers: ghHeaders(),
+                body: JSON.stringify({ message: 'Reset state', sha: f.sha, branch: GITHUB_BRANCH })
+              });
+            }
+          }).catch(function () {});
+      }
       location.reload();
     }
   });
 
-  // --- File upload ---
+  // --- GitHub API helpers ---
+  function ghApiUrl(path) {
+    return 'https://api.github.com/repos/' + GITHUB_REPO + '/contents/' + path;
+  }
+
+  function ghHeaders() {
+    return {
+      'Authorization': 'token ' + githubToken,
+      'Content-Type': 'application/json',
+      'Accept': 'application/vnd.github.v3+json'
+    };
+  }
+
+  // Загрузить файл в репозиторий через GitHub API
+  function ghUploadFile(path, base64Content, message) {
+    // Сначала проверяем существует ли файл (для получения sha)
+    return fetch(ghApiUrl(path), { headers: ghHeaders() })
+      .then(function (res) {
+        if (res.ok) return res.json();
+        return null;
+      })
+      .then(function (existing) {
+        var body = {
+          message: message || 'Upload ' + path,
+          content: base64Content,
+          branch: GITHUB_BRANCH
+        };
+        if (existing && existing.sha) {
+          body.sha = existing.sha;
+        }
+        return fetch(ghApiUrl(path), {
+          method: 'PUT',
+          headers: ghHeaders(),
+          body: JSON.stringify(body)
+        });
+      })
+      .then(function (res) {
+        if (!res.ok) throw new Error('GitHub upload failed: ' + res.status);
+        return res.json();
+      });
+  }
+
+  // --- File upload (GitHub) ---
   function handleFileUpload(inputEl) {
     if (!inputEl.files.length) return;
     var file = inputEl.files[0];
@@ -556,16 +624,85 @@
 
     var oldImg = mediaItem.querySelector('.preview-img');
     var oldVid = mediaItem.querySelector('.preview-video');
-    if (oldImg) { URL.revokeObjectURL(oldImg.src); oldImg.remove(); }
-    if (oldVid) { URL.revokeObjectURL(oldVid.src); oldVid.remove(); }
+    if (oldImg) oldImg.remove();
+    if (oldVid) oldVid.remove();
 
     mediaItem.classList.add('has-preview');
-    var objectUrl = URL.createObjectURL(file);
 
+    // Показать превью сразу (blob URL)
+    var objectUrl = URL.createObjectURL(file);
+    showPreview(mediaItem, wrapper, objectUrl, isVideo);
+
+    var filenameEl = wrapper ? wrapper.querySelector('.filename') : null;
+    var baseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+    if (filenameEl) filenameEl.textContent = baseName + '.' + ext;
+    if (lbl) lbl.textContent = isVideo ? 'видео' : 'фото';
+
+    if (selected === wrapper) {
+      inputFilename.value = baseName + '.' + ext;
+      inputTitle.value = isVideo ? 'видео' : 'фото';
+    }
+
+    // Загрузка в GitHub
+    if (!githubToken) {
+      // Нет токена — сохраняем только локально как data URL
+      var reader = new FileReader();
+      reader.onload = function (ev) {
+        wrapper.dataset.previewData = ev.target.result;
+        wrapper.dataset.previewType = isVideo ? 'video' : 'image';
+        saveState();
+      };
+      reader.readAsDataURL(file);
+      inputEl.value = '';
+      return;
+    }
+
+    var progressEl = document.createElement('div');
+    progressEl.className = 'upload-progress';
+    progressEl.textContent = 'Загрузка...';
+    mediaItem.appendChild(progressEl);
+
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      var base64 = ev.target.result.split(',')[1]; // убираем data:...;base64,
+      var filePath = 'media/' + Date.now() + '_' + file.name;
+
+      ghUploadFile(filePath, base64, 'Add media: ' + file.name)
+        .then(function (data) {
+          progressEl.remove();
+          // URL файла на GitHub Pages
+          var fileUrl = 'https://' + GITHUB_REPO.split('/')[0] + '.github.io/' +
+                        GITHUB_REPO.split('/')[1] + '/' + filePath;
+          wrapper.dataset.previewData = fileUrl;
+          wrapper.dataset.previewType = isVideo ? 'video' : 'image';
+
+          var curImg = mediaItem.querySelector('.preview-img');
+          var curVid = mediaItem.querySelector('.preview-video');
+          if (curImg) curImg.src = fileUrl;
+          if (curVid) curVid.src = fileUrl;
+
+          saveState();
+        })
+        .catch(function (err) {
+          console.error('Upload error:', err);
+          progressEl.textContent = 'Ошибка!';
+          setTimeout(function () { progressEl.remove(); }, 2000);
+          // Fallback — сохраняем как data URL
+          wrapper.dataset.previewData = ev.target.result;
+          wrapper.dataset.previewType = isVideo ? 'video' : 'image';
+          saveState();
+        });
+    };
+    reader.readAsDataURL(file);
+
+    inputEl.value = '';
+  }
+
+  function showPreview(mediaItem, wrapper, src, isVideo) {
     if (isVideo) {
       var video = document.createElement('video');
       video.className = 'preview-video';
-      video.src = objectUrl;
+      video.src = src;
       video.muted = true;
       video.loop = true;
       video.autoplay = true;
@@ -580,12 +717,11 @@
         mediaItem.style.height = newH + 'px';
         mediaItem.style.minHeight = newH + 'px';
         if (wrapper) wrapper.style.width = maxW + 'px';
-        saveState();
       });
     } else {
       var img = document.createElement('img');
       img.className = 'preview-img';
-      img.src = objectUrl;
+      img.src = src;
       mediaItem.insertBefore(img, mediaItem.querySelector('.upload-btn'));
       img.addEventListener('load', function () {
         var w = img.naturalWidth;
@@ -596,35 +732,8 @@
         mediaItem.style.height = newH + 'px';
         mediaItem.style.minHeight = newH + 'px';
         if (wrapper) wrapper.style.width = maxW + 'px';
-        saveState();
       });
     }
-
-    var filenameEl = wrapper ? wrapper.querySelector('.filename') : null;
-    var baseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
-    if (filenameEl) filenameEl.textContent = baseName + '.' + ext;
-    if (lbl) lbl.textContent = isVideo ? 'видео' : 'фото';
-
-    if (selected === wrapper) {
-      inputFilename.value = baseName + '.' + ext;
-      inputTitle.value = isVideo ? 'видео' : 'фото';
-    }
-
-    if (!isVideo) {
-      var reader = new FileReader();
-      reader.onload = function (ev) {
-        wrapper.dataset.previewData = ev.target.result;
-        wrapper.dataset.previewType = 'image';
-        saveState();
-      };
-      reader.readAsDataURL(file);
-    } else {
-      wrapper.dataset.previewData = '';
-      wrapper.dataset.previewType = 'video';
-      saveState();
-    }
-
-    inputEl.value = '';
   }
 
   document.addEventListener('change', function (e) {
@@ -745,16 +854,29 @@
       layout: currentLayout,
     };
     localStorage.setItem('portfolio-state', JSON.stringify(state));
+
+    // Сохраняем в GitHub (доступно всем посетителям)
+    if (githubToken && authenticated) {
+      var stateStr = JSON.stringify(state);
+      var base64State = btoa(unescape(encodeURIComponent(stateStr)));
+      ghUploadFile('data/state.json', base64State, 'Update portfolio state').catch(function (err) {
+        console.warn('GitHub save error:', err);
+      });
+    }
   }
 
   function loadState() {
-    var raw = localStorage.getItem('portfolio-state');
-    if (!raw) return;
+    applyState(null);
+  }
 
-    try {
-      var state = JSON.parse(raw);
-    } catch (e) {
-      return;
+  function applyState(state) {
+    if (!state) {
+      var raw = localStorage.getItem('portfolio-state');
+      if (raw) {
+        try { state = JSON.parse(raw); } catch (e) { return; }
+      } else {
+        return;
+      }
     }
 
     if (state.font) document.body.style.fontFamily = state.font;
@@ -1002,6 +1124,25 @@
   });
 
   // --- Init ---
-  loadState();
-  initAllItems();
+  // Пробуем загрузить state.json из GitHub Pages, если нет — из localStorage
+  var stateUrl = 'https://' + GITHUB_REPO.split('/')[0] + '.github.io/' +
+                 GITHUB_REPO.split('/')[1] + '/data/state.json';
+
+  fetch(stateUrl + '?t=' + Date.now())
+    .then(function (res) {
+      if (!res.ok) throw new Error('No remote state');
+      return res.json();
+    })
+    .then(function (data) {
+      if (data && data.items) {
+        applyState(data);
+      } else {
+        loadState();
+      }
+      initAllItems();
+    })
+    .catch(function () {
+      loadState();
+      initAllItems();
+    });
 })();
