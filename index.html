@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Портфолио Дамира ГММ</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <button id="edit-toggle">Редактировать</button>
+
+  <div id="editor-panel" style="display:none;">
+    <h3>Редактор</h3>
+
+    <div class="ed-layout-switch">
+      <button id="ed-layout-pc" class="active">ПК</button>
+      <button id="ed-layout-phone">Телефон</button>
+    </div>
+
+    <label>Заголовок сайта
+      <textarea id="ed-hero" rows="2">Привет, это портфолио
+Дамира ГММ</textarea>
+    </label>
+
+    <label>Размер заголовка (px)
+      <input type="number" id="ed-fontsize" value="48" min="12" max="200">
+    </label>
+
+    <label>Выравнивание заголовка
+      <div class="ed-align-group" id="ed-hero-align">
+        <button data-align="left" title="Слева">&#9776;</button>
+        <button data-align="center" class="active" title="Центр">&#9866;</button>
+        <button data-align="right" title="Справа">&#9776;</button>
+      </div>
+    </label>
+
+    <label>Шрифт
+      <select id="ed-font">
+        <option value="Arial" selected>Arial</option>
+        <option value="Helvetica Neue">Helvetica Neue</option>
+        <option value="Georgia">Georgia</option>
+        <option value="Times New Roman">Times New Roman</option>
+        <option value="Courier New">Courier New</option>
+        <option value="Verdana">Verdana</option>
+        <option value="Impact">Impact</option>
+      </select>
+    </label>
+
+    <hr>
+    <h4>Выбранный элемент</h4>
+
+    <div id="ed-media-controls">
+      <label>Название
+        <input type="text" id="ed-title" placeholder="фото / видео">
+      </label>
+
+      <label>Имя файла
+        <input type="text" id="ed-filename" placeholder="photo.png">
+      </label>
+
+      <label>Описание (для просмотра)
+        <textarea id="ed-description" rows="3" placeholder="Текст рядом с фото при открытии..."></textarea>
+      </label>
+    </div>
+
+    <div id="ed-text-controls" style="display:none;">
+      <label>Текст
+        <textarea id="ed-text-content" rows="3" placeholder="Введите текст..."></textarea>
+      </label>
+
+      <label>Шрифт текста
+        <select id="ed-text-font">
+          <option value="Arial">Arial</option>
+          <option value="Helvetica Neue">Helvetica Neue</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Times New Roman">Times New Roman</option>
+          <option value="Courier New">Courier New</option>
+          <option value="Verdana">Verdana</option>
+          <option value="Impact">Impact</option>
+        </select>
+      </label>
+
+      <label>Размер текста (px)
+        <input type="number" id="ed-text-size" value="16" min="8" max="200">
+      </label>
+
+      <label>Цвет текста
+        <input type="color" id="ed-text-color" value="#ffffff">
+      </label>
+
+      <label>Выравнивание
+        <div class="ed-align-group" id="ed-text-align">
+          <button data-align="left" class="active" title="Слева">&#9776;</button>
+          <button data-align="center" title="Центр">&#9866;</button>
+          <button data-align="right" title="Справа">&#9776;</button>
+        </div>
+      </label>
+    </div>
+
+    <label>Ширина (px)
+      <input type="number" id="ed-width" min="80">
+    </label>
+
+    <label>Высота (px)
+      <input type="number" id="ed-height" min="60">
+    </label>
+
+    <div class="ed-buttons">
+      <button id="ed-add">+ Ячейка</button>
+      <button id="ed-add-text">+ Текст</button>
+      <button id="ed-delete" disabled>Удалить</button>
+    </div>
+
+    <hr>
+    <button id="ed-preview-phone">Превью: телефон</button>
+    <button id="ed-reset">Сбросить всё</button>
+  </div>
+
+  <!-- Окно пароля -->
+  <div id="password-modal" style="display:none;">
+    <div id="password-box">
+      <h3>Вход в редактор</h3>
+      <input type="password" id="password-input" placeholder="Пароль" autocomplete="off">
+      <div id="password-error"></div>
+      <div id="password-buttons">
+        <button id="password-cancel">Отмена</button>
+        <button id="password-submit">Войти</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Эмуляция телефона -->
+  <div id="phone-preview" style="display:none;">
+    <div id="phone-frame">
+      <div id="phone-notch"></div>
+      <iframe id="phone-iframe"></iframe>
+    </div>
+    <button id="phone-close">&times;</button>
+  </div>
+
+  <div id="site-content">
+  <section class="hero">
+    <h1>Привет, это портфолио<br>Дамира ГММ</h1>
+  </section>
+
+  <section class="media-section">
+
+    <div class="media-wrapper">
+      <div class="media-item">
+        <span class="icon">&#128247;</span>
+        <span class="label">фото</span>
+      </div>
+      <span class="filename">название_фото.png</span>
+    </div>
+
+    <div class="media-wrapper">
+      <div class="media-item">
+        <span class="icon">&#127909;</span>
+        <span class="label">видео</span>
+      </div>
+      <span class="filename">название_видео.jpeg</span>
+    </div>
+
+    <div class="media-wrapper">
+      <div class="media-item">
+        <span class="icon">&#128247;</span>
+        <span class="label">фото</span>
+      </div>
+      <span class="filename">название_фото.jpg</span>
+    </div>
+
+    <div class="media-wrapper">
+      <div class="media-item">
+        <span class="icon">&#128247;</span>
+        <span class="label">фото</span>
+      </div>
+      <span class="filename">название_фото.png</span>
+    </div>
+
+    <div class="media-wrapper">
+      <div class="media-item">
+        <span class="icon">&#127909;</span>
+        <span class="label">видео</span>
+      </div>
+      <span class="filename">название_видео.jpeg</span>
+    </div>
+
+    <div class="media-wrapper">
+      <div class="media-item">
+        <span class="icon">&#128247;</span>
+        <span class="label">фото</span>
+      </div>
+      <span class="filename">название_фото.jpg</span>
+    </div>
+
+    <div class="media-wrapper">
+      <div class="media-item">
+        <span class="icon">&#127909;</span>
+        <span class="label">видео</span>
+      </div>
+      <span class="filename">название_видео.png</span>
+    </div>
+
+    <div class="media-wrapper">
+      <div class="media-item">
+        <span class="icon">&#128247;</span>
+        <span class="label">фото</span>
+      </div>
+      <span class="filename">название_фото.jpeg</span>
+    </div>
+
+    <div class="media-wrapper">
+      <div class="media-item">
+        <span class="icon">&#127909;</span>
+        <span class="label">видео</span>
+      </div>
+      <span class="filename">название_видео.jpg</span>
+    </div>
+
+    <div class="media-wrapper">
+      <div class="media-item">
+        <span class="icon">&#128247;</span>
+        <span class="label">фото</span>
+      </div>
+      <span class="filename">название_фото.png</span>
+    </div>
+
+    <div class="media-wrapper">
+      <div class="media-item">
+        <span class="icon">&#128247;</span>
+        <span class="label">фото</span>
+      </div>
+      <span class="filename">название_фото.jpeg</span>
+    </div>
+
+    <div class="media-wrapper">
+      <div class="media-item">
+        <span class="icon">&#127909;</span>
+        <span class="label">видео</span>
+      </div>
+      <span class="filename">название_видео.jpg</span>
+    </div>
+
+  </section>
+  </div>
+
+  <!-- Лайтбокс -->
+  <div id="lightbox" style="display:none;">
+    <button id="lightbox-close">&times;</button>
+    <div id="lightbox-content">
+      <div id="lightbox-media"></div>
+      <div id="lightbox-info">
+        <p id="lightbox-desc"></p>
+        <span id="lightbox-filename"></span>
+      </div>
+    </div>
+  </div>
+
+  <script src="editor.js"></script>
+</body>
+</html>

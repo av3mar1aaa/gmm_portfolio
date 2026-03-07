@@ -1,0 +1,733 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #0a0a0a;
+  color: #fff;
+  font-family: Arial, sans-serif;
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Hero / Шапка */
+.hero {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  border-bottom: 1px solid #222;
+}
+
+.hero h1 {
+  font-size: clamp(2rem, 6vw, 5rem);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* Секция медиа — ПК (по умолчанию) */
+.media-section {
+  position: relative;
+  padding: 80px 40px 120px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 30px;
+  justify-items: center;
+}
+
+/* Секция медиа — Телефон */
+.media-section.phone-layout {
+  width: 375px;
+  margin: 0 auto;
+  padding: 40px 16px 120px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+  border-left: 1px solid #222;
+  border-right: 1px solid #222;
+  min-height: 600px;
+}
+
+/* Обёртка: карточка + подпись */
+.media-wrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.media-item {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  overflow: hidden;
+  transition: transform 0.3s ease, border-color 0.3s ease;
+  width: 100%;
+  min-height: 220px;
+  position: relative;
+}
+
+.media-wrapper:hover .media-item {
+  transform: scale(1.03);
+  z-index: 10;
+  border-color: #555;
+}
+
+/* Повороты */
+.media-wrapper:nth-child(odd) {
+  transform: rotate(-1.5deg);
+}
+
+.media-wrapper:nth-child(even) {
+  transform: rotate(1.5deg);
+}
+
+.media-wrapper:nth-child(3n) {
+  transform: rotate(-2.5deg);
+}
+
+.media-wrapper:hover {
+  transform: rotate(0deg);
+}
+
+.media-item .icon {
+  font-size: 2rem;
+  color: #555;
+}
+
+.media-item .label {
+  font-size: 0.75rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* Имя файла — под карточкой */
+.filename {
+  font-family: 'Courier New', monospace;
+  font-size: 0.65rem;
+  color: #444;
+  letter-spacing: 0.02em;
+  margin-top: 6px;
+  text-align: center;
+}
+
+/* Превью загруженного файла */
+.media-item .preview-img,
+.media-item .preview-video {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: block;
+}
+
+/* Когда есть превью — ячейка подстраивается под фото */
+.media-item.has-preview {
+  gap: 0;
+  overflow: hidden;
+}
+
+/* Кнопка загрузки файла (label + скрытый input) */
+.upload-btn {
+  display: none;
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(68, 170, 255, 0.85);
+  color: #fff;
+  border: none;
+  padding: 4px 10px;
+  font-size: 0.65rem;
+  cursor: pointer;
+  z-index: 5;
+  font-family: Arial, sans-serif;
+  user-select: none;
+}
+
+body.edit-mode .media-item:hover .upload-btn,
+body.edit-mode .media-wrapper.selected .upload-btn {
+  display: block;
+}
+
+/* Текстовый блок */
+.text-block {
+  position: absolute;
+  color: #fff;
+  font-size: 16px;
+  padding: 8px;
+  min-width: 80px;
+  min-height: 40px;
+  cursor: default;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+body.edit-mode .text-block {
+  outline: 1px dashed #555;
+  cursor: grab;
+}
+
+body.edit-mode .text-block:active {
+  cursor: grabbing;
+}
+
+.text-block.selected {
+  outline: 2px solid #4af !important;
+}
+
+/* Resize handle для текста */
+.text-block .resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, #4af 50%);
+  display: none;
+}
+
+body.edit-mode .text-block .resize-handle {
+  display: block;
+}
+
+/* --- Редактор --- */
+#edit-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  background: #222;
+  color: #aaa;
+  border: 1px solid #444;
+  padding: 8px 18px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  font-family: Arial, sans-serif;
+  letter-spacing: 0.05em;
+  transition: background 0.2s;
+}
+
+#edit-toggle:hover {
+  background: #333;
+  color: #fff;
+}
+
+#editor-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 260px;
+  height: 100vh;
+  background: #111;
+  border-right: 1px solid #333;
+  z-index: 9998;
+  padding: 20px 16px;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 0.8rem;
+  color: #ccc;
+}
+
+#editor-panel h3 {
+  font-size: 1rem;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+#editor-panel h4 {
+  font-size: 0.85rem;
+  color: #888;
+  margin-top: 4px;
+}
+
+#editor-panel hr {
+  border: none;
+  border-top: 1px solid #333;
+  margin: 4px 0;
+}
+
+#editor-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: #777;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+#editor-panel input,
+#editor-panel select,
+#editor-panel textarea {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #eee;
+  padding: 6px 8px;
+  font-size: 0.8rem;
+  font-family: Arial, sans-serif;
+  outline: none;
+}
+
+#editor-panel input[type="color"] {
+  padding: 2px;
+  height: 28px;
+  cursor: pointer;
+}
+
+#editor-panel input:focus,
+#editor-panel select:focus,
+#editor-panel textarea:focus {
+  border-color: #666;
+}
+
+#editor-panel textarea {
+  resize: vertical;
+}
+
+/* Кнопки выравнивания */
+.ed-align-group {
+  display: flex;
+  gap: 4px;
+}
+
+.ed-align-group button {
+  flex: 1;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #888;
+  padding: 4px;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-family: Arial, sans-serif;
+}
+
+.ed-align-group button.active {
+  background: #2a2a2a;
+  color: #4af;
+  border-color: #4af;
+}
+
+.ed-align-group button:hover {
+  color: #fff;
+}
+
+.ed-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ed-buttons button,
+#ed-reset {
+  flex: 1;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #aaa;
+  padding: 6px;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-family: Arial, sans-serif;
+  min-width: 60px;
+}
+
+.ed-buttons button:hover,
+#ed-reset:hover {
+  background: #2a2a2a;
+  color: #fff;
+}
+
+#ed-delete:not(:disabled) {
+  border-color: #633;
+  color: #c66;
+}
+
+#ed-reset {
+  width: 100%;
+  border-color: #633;
+  color: #c66;
+}
+
+/* Edit mode */
+body.edit-mode #site-content {
+  margin-left: 260px;
+  width: calc(100vw - 260px);
+}
+
+/* Выделение */
+.media-wrapper.selected .media-item {
+  outline: 2px solid #4af;
+  outline-offset: 2px;
+}
+
+.media-wrapper.selected {
+  z-index: 11;
+}
+
+/* Resize handle */
+.resize-handle {
+  display: none;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, #4af 50%);
+  z-index: 6;
+}
+
+body.edit-mode .media-wrapper {
+  cursor: grab;
+}
+
+body.edit-mode .media-wrapper:active {
+  cursor: grabbing;
+}
+
+body.edit-mode .resize-handle {
+  display: block;
+}
+
+/* --- Лайтбокс --- */
+#lightbox {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.92);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 30px;
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 2.5rem;
+  cursor: pointer;
+  z-index: 10001;
+  line-height: 1;
+}
+
+#lightbox-close:hover {
+  color: #fff;
+}
+
+#lightbox-content {
+  display: flex;
+  align-items: center;
+  gap: 50px;
+  max-width: 90vw;
+  max-height: 85vh;
+  padding: 20px;
+}
+
+#lightbox-media {
+  flex-shrink: 0;
+  max-width: 55vw;
+  max-height: 80vh;
+}
+
+#lightbox-media img,
+#lightbox-media video {
+  max-width: 55vw;
+  max-height: 80vh;
+  display: block;
+  object-fit: contain;
+}
+
+#lightbox-info {
+  max-width: 30vw;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+#lightbox-desc {
+  font-size: 1rem;
+  color: #ddd;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+#lightbox-filename {
+  font-family: 'Courier New', monospace;
+  font-size: 0.75rem;
+  color: #555;
+}
+
+/* Лайтбокс скрыт когда пусто */
+#lightbox-desc:empty {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  #lightbox-content {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  #lightbox-media {
+    max-width: 90vw;
+  }
+
+  #lightbox-media img,
+  #lightbox-media video {
+    max-width: 90vw;
+    max-height: 50vh;
+  }
+
+  #lightbox-info {
+    max-width: 90vw;
+  }
+}
+
+/* Курсор pointer для ячеек с превью в режиме просмотра */
+.media-item.has-preview {
+  cursor: pointer;
+}
+
+body.edit-mode .media-item.has-preview {
+  cursor: grab;
+}
+
+/* Переключатель ПК / Телефон */
+.ed-layout-switch {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.ed-layout-switch button {
+  flex: 1;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #888;
+  padding: 6px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-family: Arial, sans-serif;
+}
+
+.ed-layout-switch button.active {
+  background: #2a2a2a;
+  color: #4af;
+  border-color: #4af;
+}
+
+.ed-layout-switch button:hover {
+  color: #fff;
+}
+
+/* На реальных телефонах — сужаем до 375px */
+@media (max-width: 768px) {
+  .media-section {
+    width: 375px;
+    margin: 0 auto;
+    padding: 40px 16px 120px;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 16px;
+  }
+}
+
+/* --- Эмуляция телефона --- */
+#phone-preview {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 20000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#phone-frame {
+  width: 375px;
+  height: 750px;
+  border: 4px solid #555;
+  border-radius: 40px;
+  overflow: hidden;
+  background: #000;
+  position: relative;
+  box-shadow: 0 0 60px rgba(0, 0, 0, 0.6);
+}
+
+#phone-notch {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 150px;
+  height: 28px;
+  background: #000;
+  border-radius: 0 0 18px 18px;
+  z-index: 2;
+}
+
+#phone-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #0a0a0a;
+}
+
+#phone-close {
+  position: absolute;
+  top: 20px;
+  right: 30px;
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 3rem;
+  cursor: pointer;
+  z-index: 20001;
+  line-height: 1;
+}
+
+#phone-close:hover {
+  color: #fff;
+}
+
+#ed-preview-phone {
+  width: 100%;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #aaa;
+  padding: 6px;
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-family: Arial, sans-serif;
+}
+
+#ed-preview-phone:hover {
+  background: #2a2a2a;
+  color: #fff;
+}
+
+/* --- Окно пароля --- */
+#password-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 30000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+}
+
+#password-box {
+  background: #151515;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 36px 32px 28px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+#password-box h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #eee;
+  text-align: center;
+  letter-spacing: 0.03em;
+  margin: 0;
+}
+
+#password-input {
+  background: #0e0e0e;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #eee;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  font-family: Arial, sans-serif;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+#password-input:focus {
+  border-color: #4af;
+}
+
+#password-input.shake {
+  animation: shake 0.4s ease;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
+}
+
+#password-error {
+  font-size: 0.75rem;
+  color: #e55;
+  text-align: center;
+  min-height: 1em;
+}
+
+#password-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+#password-buttons button {
+  flex: 1;
+  padding: 9px;
+  border-radius: 6px;
+  border: 1px solid #333;
+  font-size: 0.8rem;
+  font-family: Arial, sans-serif;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+#password-cancel {
+  background: #1a1a1a;
+  color: #888;
+}
+
+#password-cancel:hover {
+  background: #252525;
+  color: #ccc;
+}
+
+#password-submit {
+  background: #1a3a5c;
+  color: #4af;
+  border-color: #2a4a6c;
+}
+
+#password-submit:hover {
+  background: #254a6c;
+  color: #6cf;
+}
