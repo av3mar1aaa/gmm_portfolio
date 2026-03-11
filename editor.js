@@ -641,7 +641,7 @@
 
   function yosUploadFile(fileName, arrayBuffer, contentType) {
     if (!YOS_BUCKET || !yosAccessKey || !yosSecretKey) {
-      return Promise.reject(new Error('YOS not configured'));
+      return Promise.reject(new Error('YOS not configured: bucket=' + YOS_BUCKET + ' ak=' + (yosAccessKey ? 'yes' : 'no') + ' sk=' + (yosSecretKey ? 'yes' : 'no')));
     }
 
     var region = 'ru-central1';
@@ -704,6 +704,9 @@
         return res.text().then(function (t) { throw new Error('YOS upload failed: ' + res.status + ' ' + t); });
       }
       return 'https://' + host + path;
+    }).catch(function (e) {
+      alert('YOS debug: ' + e.message);
+      throw e;
     });
   }
 
