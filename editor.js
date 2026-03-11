@@ -954,7 +954,9 @@
       sectionMinHeight: mediaSection.style.minHeight || '',
       layout: currentLayout,
     };
+    state.savedAt = Date.now();
     localStorage.setItem('portfolio-state', JSON.stringify(state));
+    console.log('[Portfolio Save] Saved to localStorage, items:', state.items.length, 'at:', new Date(state.savedAt).toLocaleTimeString());
 
     // Сохраняем в GitHub (доступно всем посетителям)
     if (githubToken && authenticated) {
@@ -964,10 +966,6 @@
         console.warn('GitHub save error:', err);
       });
     }
-  }
-
-  function loadState() {
-    applyState(null);
   }
 
   function applyState(state) {
@@ -1231,21 +1229,36 @@
   var stateUrl = 'https://' + GITHUB_REPO.split('/')[0] + '.github.io/' +
                  GITHUB_REPO.split('/')[1] + '/data/state.json';
 
-  fetch(stateUrl + '?t=' + Date.now())
-    .then(function (res) {
-      if (!res.ok) throw new Error('No remote state');
-      return res.json();
-    })
-    .then(function (data) {
-      if (data && data.items) {
-        applyState(data);
-      } else {
-        loadState();
-      }
-      initAllItems();
-    })
-    .catch(function () {
-      loadState();
-      initAllItems();
-    });
+  // Сначала проверяем localStorage — он всегда самый свежий для данного браузера
+  var localRaw = localStorage.getItem('portfolio-state');
+  var localState = null;
+  if (localRaw) {
+    try { localState = JSON.parse(localRaw); } catch (e) { /* ignore */ }
+  }
+
+  console.log('[Portfolio Init] localStorage exists:', !!localRaw, 'has items:', !!(localState && localState.items), 'items count:', localState && localState.items ? localState.items.length : 0);
+
+  if (localState && localState.items) {
+    // Есть локальное сохранение — используем его
+    console.log('[Portfolio Init] Using localStorage state');
+    applyState(localState);
+    initAllItems();
+  } else {
+    // Нет локального — загружаем с GitHub Pages
+    console.log('[Portfolio Init] No localStorage, fetching from GitHub Pages...');
+    fetch(stateUrl + '?t=' + Date.now())
+      .then(function (res) {
+        if (!res.ok) throw new Error('No remote state');
+        return res.json();
+      })
+      .then(function (data) {
+        if (data && data.items) {
+          applyState(data);
+        }
+        initAllItems();
+      })
+      .catch(function () {
+        initAllItems();
+      });
+  }
 })();
