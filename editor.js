@@ -196,15 +196,6 @@
     if (sk) { yosSecretKey = sk; localStorage.setItem('yos-secret-key', sk); }
     hidePasswordModal();
     enterEditMode();
-    // Тест YOS при входе
-    if (yosAccessKey && yosSecretKey && YOS_BUCKET) {
-      var testData = new TextEncoder().encode('test');
-      yosUploadFile('_test_' + Date.now() + '.txt', testData.buffer, 'text/plain')
-        .then(function (url) { alert('YOS работает! Тестовый файл: ' + url); })
-        .catch(function (e) { alert('YOS НЕ работает: ' + e.message); });
-    } else {
-      alert('YOS не настроен: bucket=' + YOS_BUCKET + ' ak=' + (yosAccessKey ? 'да' : 'нет') + ' sk=' + (yosSecretKey ? 'да' : 'нет'));
-    }
   }
 
   passwordSubmit.addEventListener('click', tryPassword);
