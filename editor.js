@@ -663,7 +663,6 @@
       var headers = {
         'content-type': contentType,
         'host': host,
-        'x-amz-acl': 'public-read',
         'x-amz-content-sha256': payloadHashHex,
         'x-amz-date': amzDate
       };
@@ -693,7 +692,6 @@
               headers: {
                 'Authorization': auth,
                 'Content-Type': contentType,
-                'x-amz-acl': 'public-read',
                 'x-amz-content-sha256': payloadHashHex,
                 'x-amz-date': amzDate
               },
