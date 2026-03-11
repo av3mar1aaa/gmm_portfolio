@@ -781,6 +781,7 @@
         })
         .catch(function (err) {
           console.error('YOS Upload error:', err);
+          alert('YOS ошибка: ' + err.message);
           progressEl.textContent = 'YOS ошибка, сохраняю локально...';
           setTimeout(function () { progressEl.remove(); }, 3000);
           // Fallback — сохраняем как data URL
