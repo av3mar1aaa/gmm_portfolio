@@ -650,25 +650,22 @@
     var path = '/media/' + fileName;
     var method = 'PUT';
 
+    // Presigned URL approach — подпись в query params, без кастомных заголовков
     var now = new Date();
     var dateStamp = now.toISOString().replace(/[-:]/g, '').slice(0, 8);
     var amzDate = dateStamp + 'T' + now.toISOString().replace(/[-:]/g, '').slice(9, 15) + 'Z';
     var credentialScope = dateStamp + '/' + region + '/' + service + '/aws4_request';
+    var credential = yosAccessKey + '/' + credentialScope;
+    var expires = '86400';
 
-    var payloadHashHex = 'UNSIGNED-PAYLOAD';
+    var queryParams = 'X-Amz-Algorithm=AWS4-HMAC-SHA256' +
+      '&X-Amz-Credential=' + encodeURIComponent(credential) +
+      '&X-Amz-Date=' + amzDate +
+      '&X-Amz-Expires=' + expires +
+      '&X-Amz-SignedHeaders=host';
 
-    var headers = {
-      'content-type': contentType,
-      'host': host,
-      'x-amz-content-sha256': payloadHashHex,
-      'x-amz-date': amzDate
-    };
-
-    var signedHeaderKeys = Object.keys(headers).sort();
-    var signedHeaders = signedHeaderKeys.join(';');
-    var canonicalHeaders = signedHeaderKeys.map(function (k) { return k + ':' + headers[k] + '\n'; }).join('');
-
-    var canonicalRequest = method + '\n' + path + '\n' + '' + '\n' + canonicalHeaders + '\n' + signedHeaders + '\n' + payloadHashHex;
+    var canonicalHeaders = 'host:' + host + '\n';
+    var canonicalRequest = method + '\n' + path + '\n' + queryParams + '\n' + canonicalHeaders + '\nhost\nUNSIGNED-PAYLOAD';
 
     return yosSha256(new TextEncoder().encode(canonicalRequest)).then(function (crHash) {
       var stringToSign = 'AWS4-HMAC-SHA256\n' + amzDate + '\n' + credentialScope + '\n' + bufToHex(crHash);
@@ -681,16 +678,12 @@
         .then(function (signingKey) { return yosHmac(signingKey, enc.encode(stringToSign)); })
         .then(function (sig) {
           var signature = bufToHex(sig);
-          var auth = 'AWS4-HMAC-SHA256 Credential=' + yosAccessKey + '/' + credentialScope +
-                     ', SignedHeaders=' + signedHeaders + ', Signature=' + signature;
+          var presignedUrl = 'https://' + host + path + '?' + queryParams + '&X-Amz-Signature=' + signature;
 
           return new Promise(function (resolve, reject) {
             var xhr = new XMLHttpRequest();
-            xhr.open('PUT', 'https://' + host + path, true);
-            xhr.setRequestHeader('Authorization', auth);
+            xhr.open('PUT', presignedUrl, true);
             xhr.setRequestHeader('Content-Type', contentType);
-            xhr.setRequestHeader('x-amz-content-sha256', payloadHashHex);
-            xhr.setRequestHeader('x-amz-date', amzDate);
 
             xhr.upload.onprogress = function (e) {
               if (e.lengthComputable && window._yosProgressEl) {
@@ -708,11 +701,7 @@
             };
 
             xhr.onerror = function () {
-              reject(new Error('YOS xhr error: status=' + xhr.status + ' type=' + contentType + ' size=' + (fileOrBuffer.size || fileOrBuffer.byteLength || '?')));
-            };
-
-            xhr.ontimeout = function () {
-              reject(new Error('YOS timeout'));
+              reject(new Error('YOS xhr error: status=' + xhr.status));
             };
 
             xhr.send(fileOrBuffer);
