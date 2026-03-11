@@ -708,7 +708,11 @@
             };
 
             xhr.onerror = function () {
-              reject(new Error('YOS network error (xhr)'));
+              reject(new Error('YOS xhr error: status=' + xhr.status + ' type=' + contentType + ' size=' + (fileOrBuffer.size || fileOrBuffer.byteLength || '?')));
+            };
+
+            xhr.ontimeout = function () {
+              reject(new Error('YOS timeout'));
             };
 
             xhr.send(fileOrBuffer);
