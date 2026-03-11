@@ -694,22 +694,36 @@
           var auth = 'AWS4-HMAC-SHA256 Credential=' + yosAccessKey + '/' + credentialScope +
                      ', SignedHeaders=' + signedHeaders + ', Signature=' + signature;
 
-          return fetch('https://' + host + path, {
-            method: 'PUT',
-            headers: {
-              'Authorization': auth,
-              'Content-Type': contentType,
-              'x-amz-content-sha256': payloadHashHex,
-              'x-amz-date': amzDate
-            },
-            body: payloadBytes
+          return new Promise(function (resolve, reject) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('PUT', 'https://' + host + path, true);
+            xhr.setRequestHeader('Authorization', auth);
+            xhr.setRequestHeader('Content-Type', contentType);
+            xhr.setRequestHeader('x-amz-content-sha256', payloadHashHex);
+            xhr.setRequestHeader('x-amz-date', amzDate);
+
+            xhr.upload.onprogress = function (e) {
+              if (e.lengthComputable && window._yosProgressEl) {
+                var pct = Math.round(e.loaded / e.total * 100);
+                window._yosProgressEl.textContent = 'Загрузка... ' + pct + '%';
+              }
+            };
+
+            xhr.onload = function () {
+              if (xhr.status >= 200 && xhr.status < 300) {
+                resolve('https://' + host + path);
+              } else {
+                reject(new Error('YOS upload failed: ' + xhr.status + ' ' + xhr.responseText));
+              }
+            };
+
+            xhr.onerror = function () {
+              reject(new Error('YOS network error (xhr)'));
+            };
+
+            xhr.send(payloadBytes);
           });
         });
-    }).then(function (res) {
-      if (!res.ok) {
-        return res.text().then(function (t) { throw new Error('YOS upload failed: ' + res.status + ' ' + t); });
-      }
-      return 'https://' + host + path;
     }).catch(function (e) {
       alert('YOS debug: ' + e.message);
       throw e;
@@ -769,6 +783,7 @@
     progressEl.className = 'upload-progress';
     progressEl.textContent = 'Загрузка...';
     mediaItem.appendChild(progressEl);
+    window._yosProgressEl = progressEl;
 
     var reader = new FileReader();
     reader.onload = function (ev) {
