@@ -782,15 +782,16 @@
           saveState();
         })
         .catch(function (err) {
-          console.error('Upload error:', err);
-          progressEl.textContent = 'Ошибка!';
-          setTimeout(function () { progressEl.remove(); }, 2000);
+          console.error('YOS Upload error:', err);
+          progressEl.textContent = 'YOS ошибка, сохраняю локально...';
+          setTimeout(function () { progressEl.remove(); }, 3000);
           // Fallback — сохраняем как data URL
           var fallbackReader = new FileReader();
           fallbackReader.onload = function (e2) {
             wrapper.dataset.previewData = e2.target.result;
             wrapper.dataset.previewType = isVideo ? 'video' : 'image';
             saveState();
+            console.log('Fallback: saved as base64, length:', e2.target.result.length);
           };
           fallbackReader.readAsDataURL(file);
         });
