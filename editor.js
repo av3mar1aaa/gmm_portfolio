@@ -683,7 +683,6 @@
           return new Promise(function (resolve, reject) {
             var xhr = new XMLHttpRequest();
             xhr.open('PUT', presignedUrl, true);
-            xhr.setRequestHeader('Content-Type', contentType);
 
             xhr.upload.onprogress = function (e) {
               if (e.lengthComputable && window._yosProgressEl) {
