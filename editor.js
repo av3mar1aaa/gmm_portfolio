@@ -665,49 +665,46 @@
     var credentialScope = dateStamp + '/' + region + '/' + service + '/aws4_request';
 
     var payloadBytes = new Uint8Array(arrayBuffer);
+    var payloadHashHex = 'UNSIGNED-PAYLOAD';
 
-    return yosSha256(payloadBytes).then(function (payloadHash) {
-      var payloadHashHex = bufToHex(payloadHash);
+    var headers = {
+      'content-type': contentType,
+      'host': host,
+      'x-amz-content-sha256': payloadHashHex,
+      'x-amz-date': amzDate
+    };
 
-      var headers = {
-        'content-type': contentType,
-        'host': host,
-        'x-amz-content-sha256': payloadHashHex,
-        'x-amz-date': amzDate
-      };
+    var signedHeaderKeys = Object.keys(headers).sort();
+    var signedHeaders = signedHeaderKeys.join(';');
+    var canonicalHeaders = signedHeaderKeys.map(function (k) { return k + ':' + headers[k] + '\n'; }).join('');
 
-      var signedHeaderKeys = Object.keys(headers).sort();
-      var signedHeaders = signedHeaderKeys.join(';');
-      var canonicalHeaders = signedHeaderKeys.map(function (k) { return k + ':' + headers[k] + '\n'; }).join('');
+    var canonicalRequest = method + '\n' + path + '\n' + '' + '\n' + canonicalHeaders + '\n' + signedHeaders + '\n' + payloadHashHex;
 
-      var canonicalRequest = method + '\n' + path + '\n' + '' + '\n' + canonicalHeaders + '\n' + signedHeaders + '\n' + payloadHashHex;
+    return yosSha256(new TextEncoder().encode(canonicalRequest)).then(function (crHash) {
+      var stringToSign = 'AWS4-HMAC-SHA256\n' + amzDate + '\n' + credentialScope + '\n' + bufToHex(crHash);
+      var enc = new TextEncoder();
 
-      return yosSha256(new TextEncoder().encode(canonicalRequest)).then(function (crHash) {
-        var stringToSign = 'AWS4-HMAC-SHA256\n' + amzDate + '\n' + credentialScope + '\n' + bufToHex(crHash);
-        var enc = new TextEncoder();
+      return yosHmac(enc.encode('AWS4' + yosSecretKey), enc.encode(dateStamp))
+        .then(function (k1) { return yosHmac(k1, enc.encode(region)); })
+        .then(function (k2) { return yosHmac(k2, enc.encode(service)); })
+        .then(function (k3) { return yosHmac(k3, enc.encode('aws4_request')); })
+        .then(function (signingKey) { return yosHmac(signingKey, enc.encode(stringToSign)); })
+        .then(function (sig) {
+          var signature = bufToHex(sig);
+          var auth = 'AWS4-HMAC-SHA256 Credential=' + yosAccessKey + '/' + credentialScope +
+                     ', SignedHeaders=' + signedHeaders + ', Signature=' + signature;
 
-        return yosHmac(enc.encode('AWS4' + yosSecretKey), enc.encode(dateStamp))
-          .then(function (k1) { return yosHmac(k1, enc.encode(region)); })
-          .then(function (k2) { return yosHmac(k2, enc.encode(service)); })
-          .then(function (k3) { return yosHmac(k3, enc.encode('aws4_request')); })
-          .then(function (signingKey) { return yosHmac(signingKey, enc.encode(stringToSign)); })
-          .then(function (sig) {
-            var signature = bufToHex(sig);
-            var auth = 'AWS4-HMAC-SHA256 Credential=' + yosAccessKey + '/' + credentialScope +
-                       ', SignedHeaders=' + signedHeaders + ', Signature=' + signature;
-
-            return fetch('https://' + host + path, {
-              method: 'PUT',
-              headers: {
-                'Authorization': auth,
-                'Content-Type': contentType,
-                'x-amz-content-sha256': payloadHashHex,
-                'x-amz-date': amzDate
-              },
-              body: payloadBytes
-            });
+          return fetch('https://' + host + path, {
+            method: 'PUT',
+            headers: {
+              'Authorization': auth,
+              'Content-Type': contentType,
+              'x-amz-content-sha256': payloadHashHex,
+              'x-amz-date': amzDate
+            },
+            body: payloadBytes
           });
-      });
+        });
     }).then(function (res) {
       if (!res.ok) {
         return res.text().then(function (t) { throw new Error('YOS upload failed: ' + res.status + ' ' + t); });
