@@ -122,8 +122,11 @@
     <div id="password-box">
       <h3>Вход в редактор</h3>
       <input type="password" id="password-input" placeholder="Пароль редактора" autocomplete="off">
-      <input type="password" id="github-token-input" placeholder="GitHub токен (для загрузки файлов)" autocomplete="off">
-      <p id="token-hint">Нужен для сохранения фото. <a href="https://github.com/settings/tokens/new?scopes=repo&description=portfolio" target="_blank" style="color:#4af;">Создать токен</a></p>
+      <input type="password" id="github-token-input" placeholder="GitHub токен (для сохранения состояния)" autocomplete="off">
+      <p id="token-hint">Нужен для сохранения состояния. <a href="https://github.com/settings/tokens/new?scopes=repo&description=portfolio" target="_blank" style="color:#4af;">Создать токен</a></p>
+      <input type="text" id="yos-access-key" placeholder="Yandex S3 Access Key" autocomplete="off">
+      <input type="password" id="yos-secret-key" placeholder="Yandex S3 Secret Key" autocomplete="off">
+      <p id="yos-hint">Нужен для загрузки медиафайлов (Yandex Object Storage)</p>
       <div id="password-error"></div>
       <div id="password-buttons">
         <button id="password-cancel">Отмена</button>

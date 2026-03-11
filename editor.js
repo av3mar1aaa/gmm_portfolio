@@ -153,10 +153,16 @@
   var passwordSubmit = document.getElementById('password-submit');
   var passwordCancel = document.getElementById('password-cancel');
   var githubToken = localStorage.getItem('gh-token') || '';
+  var yosAccessKeyInput = document.getElementById('yos-access-key');
+  var yosSecretKeyInput = document.getElementById('yos-secret-key');
+  var yosAccessKey = localStorage.getItem('yos-access-key') || '';
+  var yosSecretKey = localStorage.getItem('yos-secret-key') || '';
 
   function showPasswordModal() {
     passwordInput.value = '';
     githubTokenInput.value = githubToken;
+    yosAccessKeyInput.value = yosAccessKey;
+    yosSecretKeyInput.value = yosSecretKey;
     passwordError.textContent = '';
     passwordModal.style.display = 'flex';
     setTimeout(function () { passwordInput.focus(); }, 50);
@@ -183,6 +189,11 @@
       githubToken = token;
       localStorage.setItem('gh-token', token);
     }
+    // Сохранить YOS ключи
+    var ak = yosAccessKeyInput.value.trim();
+    var sk = yosSecretKeyInput.value.trim();
+    if (ak) { yosAccessKey = ak; localStorage.setItem('yos-access-key', ak); }
+    if (sk) { yosSecretKey = sk; localStorage.setItem('yos-secret-key', sk); }
     hidePasswordModal();
     enterEditMode();
   }
@@ -193,6 +204,12 @@
     if (e.key === 'Escape') hidePasswordModal();
   });
   githubTokenInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') tryPassword();
+  });
+  yosAccessKeyInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') tryPassword();
+  });
+  yosSecretKeyInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') tryPassword();
   });
   passwordCancel.addEventListener('click', hidePasswordModal);
@@ -608,7 +625,91 @@
       });
   }
 
-  // --- File upload (GitHub) ---
+  // --- Yandex Object Storage (S3) helpers ---
+  function yosHmac(key, msg) {
+    return crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+      .then(function (k) { return crypto.subtle.sign('HMAC', k, msg); });
+  }
+
+  function yosSha256(data) {
+    return crypto.subtle.digest('SHA-256', data);
+  }
+
+  function bufToHex(buf) {
+    return Array.from(new Uint8Array(buf)).map(function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+  }
+
+  function yosUploadFile(fileName, arrayBuffer, contentType) {
+    if (!YOS_BUCKET || !yosAccessKey || !yosSecretKey) {
+      return Promise.reject(new Error('YOS not configured'));
+    }
+
+    var region = 'ru-central1';
+    var service = 's3';
+    var host = YOS_BUCKET + '.storage.yandexcloud.net';
+    var path = '/media/' + fileName;
+    var method = 'PUT';
+
+    var now = new Date();
+    var dateStamp = now.toISOString().replace(/[-:]/g, '').slice(0, 8);
+    var amzDate = dateStamp + 'T' + now.toISOString().replace(/[-:]/g, '').slice(9, 15) + 'Z';
+    var credentialScope = dateStamp + '/' + region + '/' + service + '/aws4_request';
+
+    var payloadBytes = new Uint8Array(arrayBuffer);
+
+    return yosSha256(payloadBytes).then(function (payloadHash) {
+      var payloadHashHex = bufToHex(payloadHash);
+
+      var headers = {
+        'content-type': contentType,
+        'host': host,
+        'x-amz-acl': 'public-read',
+        'x-amz-content-sha256': payloadHashHex,
+        'x-amz-date': amzDate
+      };
+
+      var signedHeaderKeys = Object.keys(headers).sort();
+      var signedHeaders = signedHeaderKeys.join(';');
+      var canonicalHeaders = signedHeaderKeys.map(function (k) { return k + ':' + headers[k] + '\n'; }).join('');
+
+      var canonicalRequest = method + '\n' + path + '\n' + '' + '\n' + canonicalHeaders + '\n' + signedHeaders + '\n' + payloadHashHex;
+
+      return yosSha256(new TextEncoder().encode(canonicalRequest)).then(function (crHash) {
+        var stringToSign = 'AWS4-HMAC-SHA256\n' + amzDate + '\n' + credentialScope + '\n' + bufToHex(crHash);
+        var enc = new TextEncoder();
+
+        return yosHmac(enc.encode('AWS4' + yosSecretKey), enc.encode(dateStamp))
+          .then(function (k1) { return yosHmac(k1, enc.encode(region)); })
+          .then(function (k2) { return yosHmac(k2, enc.encode(service)); })
+          .then(function (k3) { return yosHmac(k3, enc.encode('aws4_request')); })
+          .then(function (signingKey) { return yosHmac(signingKey, enc.encode(stringToSign)); })
+          .then(function (sig) {
+            var signature = bufToHex(sig);
+            var auth = 'AWS4-HMAC-SHA256 Credential=' + yosAccessKey + '/' + credentialScope +
+                       ', SignedHeaders=' + signedHeaders + ', Signature=' + signature;
+
+            return fetch('https://' + host + path, {
+              method: 'PUT',
+              headers: {
+                'Authorization': auth,
+                'Content-Type': contentType,
+                'x-amz-acl': 'public-read',
+                'x-amz-content-sha256': payloadHashHex,
+                'x-amz-date': amzDate
+              },
+              body: payloadBytes
+            });
+          });
+      });
+    }).then(function (res) {
+      if (!res.ok) {
+        return res.text().then(function (t) { throw new Error('YOS upload failed: ' + res.status + ' ' + t); });
+      }
+      return 'https://' + host + path;
+    });
+  }
+
+  // --- File upload ---
   function handleFileUpload(inputEl) {
     if (!inputEl.files.length) return;
     var file = inputEl.files[0];
@@ -643,9 +744,9 @@
       inputTitle.value = isVideo ? 'видео' : 'фото';
     }
 
-    // Загрузка в GitHub
-    if (!githubToken) {
-      // Нет токена — сохраняем только локально как data URL
+    // Загрузка в Yandex Object Storage
+    if (!yosAccessKey || !yosSecretKey || !YOS_BUCKET) {
+      // Нет ключей YOS — сохраняем только локально как data URL
       var reader = new FileReader();
       reader.onload = function (ev) {
         wrapper.dataset.previewData = ev.target.result;
@@ -664,15 +765,12 @@
 
     var reader = new FileReader();
     reader.onload = function (ev) {
-      var base64 = ev.target.result.split(',')[1]; // убираем data:...;base64,
-      var filePath = 'media/' + Date.now() + '_' + file.name;
+      var arrayBuffer = ev.target.result;
+      var uploadName = Date.now() + '_' + file.name;
 
-      ghUploadFile(filePath, base64, 'Add media: ' + file.name)
-        .then(function (data) {
+      yosUploadFile(uploadName, arrayBuffer, file.type)
+        .then(function (fileUrl) {
           progressEl.remove();
-          // URL файла на GitHub Pages
-          var fileUrl = 'https://' + GITHUB_REPO.split('/')[0] + '.github.io/' +
-                        GITHUB_REPO.split('/')[1] + '/' + filePath;
           wrapper.dataset.previewData = fileUrl;
           wrapper.dataset.previewType = isVideo ? 'video' : 'image';
 
@@ -688,12 +786,16 @@
           progressEl.textContent = 'Ошибка!';
           setTimeout(function () { progressEl.remove(); }, 2000);
           // Fallback — сохраняем как data URL
-          wrapper.dataset.previewData = ev.target.result;
-          wrapper.dataset.previewType = isVideo ? 'video' : 'image';
-          saveState();
+          var fallbackReader = new FileReader();
+          fallbackReader.onload = function (e2) {
+            wrapper.dataset.previewData = e2.target.result;
+            wrapper.dataset.previewType = isVideo ? 'video' : 'image';
+            saveState();
+          };
+          fallbackReader.readAsDataURL(file);
         });
     };
-    reader.readAsDataURL(file);
+    reader.readAsArrayBuffer(file);
 
     inputEl.value = '';
   }
@@ -938,6 +1040,8 @@
           wrapper.innerHTML = html;
 
           if (data.description) wrapper.dataset.description = data.description;
+          if (data.previewSrc) wrapper.dataset.previewData = data.previewSrc;
+          if (data.previewType) wrapper.dataset.previewType = data.previewType;
 
           // Сохранить обе раскладки в data-атрибуты
           var pc = data.pc || {};
