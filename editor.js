@@ -647,7 +647,7 @@
     var region = 'ru-central1';
     var service = 's3';
     var host = YOS_BUCKET + '.storage.yandexcloud.net';
-    var path = '/media/' + fileName;
+    var path = '/media/' + encodeURIComponent(fileName);
     var method = 'PUT';
 
     // Presigned URL approach — подпись в query params, без кастомных заголовков
@@ -706,9 +706,6 @@
             xhr.send(fileOrBuffer);
           });
         });
-    }).catch(function (e) {
-      alert('YOS debug: ' + e.message);
-      throw e;
     });
   }
 
@@ -767,7 +764,7 @@
     mediaItem.appendChild(progressEl);
     window._yosProgressEl = progressEl;
 
-    var uploadName = Date.now() + '_' + file.name;
+    var uploadName = Date.now() + '_' + file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
 
     yosUploadFile(uploadName, file, file.type)
       .then(function (fileUrl) {
