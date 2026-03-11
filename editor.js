@@ -648,7 +648,7 @@
     return Array.from(new Uint8Array(buf)).map(function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
   }
 
-  function yosUploadFile(fileName, arrayBuffer, contentType) {
+  function yosUploadFile(fileName, fileOrBuffer, contentType) {
     if (!YOS_BUCKET || !yosAccessKey || !yosSecretKey) {
       return Promise.reject(new Error('YOS not configured: bucket=' + YOS_BUCKET + ' ak=' + (yosAccessKey ? 'yes' : 'no') + ' sk=' + (yosSecretKey ? 'yes' : 'no')));
     }
@@ -664,7 +664,6 @@
     var amzDate = dateStamp + 'T' + now.toISOString().replace(/[-:]/g, '').slice(9, 15) + 'Z';
     var credentialScope = dateStamp + '/' + region + '/' + service + '/aws4_request';
 
-    var payloadBytes = new Uint8Array(arrayBuffer);
     var payloadHashHex = 'UNSIGNED-PAYLOAD';
 
     var headers = {
@@ -721,7 +720,7 @@
               reject(new Error('YOS network error (xhr)'));
             };
 
-            xhr.send(payloadBytes);
+            xhr.send(fileOrBuffer);
           });
         });
     }).catch(function (e) {
@@ -785,41 +784,37 @@
     mediaItem.appendChild(progressEl);
     window._yosProgressEl = progressEl;
 
-    var reader = new FileReader();
-    reader.onload = function (ev) {
-      var arrayBuffer = ev.target.result;
-      var uploadName = Date.now() + '_' + file.name;
+    var uploadName = Date.now() + '_' + file.name;
 
-      yosUploadFile(uploadName, arrayBuffer, file.type)
-        .then(function (fileUrl) {
-          progressEl.remove();
-          wrapper.dataset.previewData = fileUrl;
+    yosUploadFile(uploadName, file, file.type)
+      .then(function (fileUrl) {
+        progressEl.remove();
+        window._yosProgressEl = null;
+        wrapper.dataset.previewData = fileUrl;
+        wrapper.dataset.previewType = isVideo ? 'video' : 'image';
+
+        var curImg = mediaItem.querySelector('.preview-img');
+        var curVid = mediaItem.querySelector('.preview-video');
+        if (curImg) curImg.src = fileUrl;
+        if (curVid) curVid.src = fileUrl;
+
+        saveState();
+      })
+      .catch(function (err) {
+        console.error('YOS Upload error:', err);
+        alert('YOS ошибка: ' + err.message);
+        progressEl.textContent = 'YOS ошибка, сохраняю локально...';
+        window._yosProgressEl = null;
+        setTimeout(function () { progressEl.remove(); }, 3000);
+        // Fallback — сохраняем как data URL
+        var fallbackReader = new FileReader();
+        fallbackReader.onload = function (e2) {
+          wrapper.dataset.previewData = e2.target.result;
           wrapper.dataset.previewType = isVideo ? 'video' : 'image';
-
-          var curImg = mediaItem.querySelector('.preview-img');
-          var curVid = mediaItem.querySelector('.preview-video');
-          if (curImg) curImg.src = fileUrl;
-          if (curVid) curVid.src = fileUrl;
-
           saveState();
-        })
-        .catch(function (err) {
-          console.error('YOS Upload error:', err);
-          alert('YOS ошибка: ' + err.message);
-          progressEl.textContent = 'YOS ошибка, сохраняю локально...';
-          setTimeout(function () { progressEl.remove(); }, 3000);
-          // Fallback — сохраняем как data URL
-          var fallbackReader = new FileReader();
-          fallbackReader.onload = function (e2) {
-            wrapper.dataset.previewData = e2.target.result;
-            wrapper.dataset.previewType = isVideo ? 'video' : 'image';
-            saveState();
-            console.log('Fallback: saved as base64, length:', e2.target.result.length);
-          };
-          fallbackReader.readAsDataURL(file);
-        });
-    };
-    reader.readAsArrayBuffer(file);
+        };
+        fallbackReader.readAsDataURL(file);
+      });
 
     inputEl.value = '';
   }
