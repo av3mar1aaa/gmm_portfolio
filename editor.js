@@ -149,7 +149,6 @@
   // --- Password modal ---
   var passwordModal = document.getElementById('password-modal');
   var passwordInput = document.getElementById('password-input');
-  var workerUrlInput = document.getElementById('worker-url-input');
   var passwordError = document.getElementById('password-error');
   var passwordSubmit = document.getElementById('password-submit');
   var passwordCancel = document.getElementById('password-cancel');
@@ -157,11 +156,9 @@
   var yosSecretKeyInput = document.getElementById('yos-secret-key');
   var yosAccessKey = localStorage.getItem('yos-access-key') || '';
   var yosSecretKey = localStorage.getItem('yos-secret-key') || '';
-  var savedWorkerUrl = localStorage.getItem('worker-url') || '';
 
   function showPasswordModal() {
     passwordInput.value = '';
-    workerUrlInput.value = savedWorkerUrl;
     yosAccessKeyInput.value = yosAccessKey;
     yosSecretKeyInput.value = yosSecretKey;
     passwordError.textContent = '';
@@ -185,12 +182,6 @@
     }
     authenticated = true;
     editorPassword = pwd; // понадобится для X-Editor-Password в запросах к Worker'у
-    // Сохранить Worker URL (опциональный override; основной URL в cloud-config.js)
-    var url = workerUrlInput.value.trim();
-    if (url) {
-      WORKER_URL = url;
-      localStorage.setItem('worker-url', url);
-    }
     // Сохранить YOS ключи
     var ak = yosAccessKeyInput.value.trim();
     var sk = yosSecretKeyInput.value.trim();
@@ -204,9 +195,6 @@
   passwordInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') tryPassword();
     if (e.key === 'Escape') hidePasswordModal();
-  });
-  workerUrlInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') tryPassword();
   });
   yosAccessKeyInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') tryPassword();
@@ -585,11 +573,9 @@
   });
 
   // --- Cloudflare Worker ---
-  // WORKER_URL объявлен в cloud-config.js. Опциональный override из localStorage:
-  (function () {
-    var saved = localStorage.getItem('worker-url');
-    if (saved) WORKER_URL = saved;
-  })();
+  // WORKER_URL объявлен в cloud-config.js
+  // Чистим устаревший localStorage override (могло остаться от прежней версии модалки):
+  localStorage.removeItem('worker-url');
 
   function workerConfigured() {
     return WORKER_URL && !WORKER_URL.includes('YOUR_USERNAME');
