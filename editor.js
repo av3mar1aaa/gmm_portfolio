@@ -233,6 +233,9 @@
       // При выходе из редактора — показать layout для текущего устройства
       storePositionsToData(currentLayout);
       var deviceLayout = window.innerWidth <= 768 ? 'phone' : 'pc';
+      // КРИТИЧНО: обновить currentLayout до saveState, иначе он запишет
+      // позиции deviceLayout в data-атрибуты старого currentLayout
+      currentLayout = deviceLayout;
       loadPositionsFromData(deviceLayout);
       if (deviceLayout === 'phone') {
         mediaSection.classList.add('phone-layout');
@@ -908,8 +911,7 @@
         if (remoteTime > localTime && JSON.stringify(remoteState) !== JSON.stringify(lastSavedState)) {
           console.log('[Portfolio Sync] ⬇️ Remote update detected! Remote time:', new Date(remoteTime).toLocaleTimeString());
           remoteUpdateNotified = true;
-          showSyncStatus('⬇️ Получены изменения от другого пользователя...', 2000);
-          alert('Внимание! Изменения были сделаны другим пользователем.\nЗагружу новую версию...');
+          showSyncStatus('⬇️ Изменения от другого пользователя — обновляю', 4000);
           applyState(remoteState);
           localStorage.setItem('portfolio-state', JSON.stringify(remoteState));
           lastSavedState = JSON.parse(JSON.stringify(remoteState));
@@ -1045,12 +1047,18 @@
 
     if (state.font) document.body.style.fontFamily = state.font;
     if (state.heroText) heroH1.innerHTML = state.heroText;
-    if (state.heroFontSize) heroH1.style.fontSize = state.heroFontSize;
     if (state.heroAlign) {
       heroH1.style.textAlign = state.heroAlign;
       setAlignActive(heroAlignGroup, state.heroAlign);
     }
-    if (state.sectionMinHeight) mediaSection.style.minHeight = state.sectionMinHeight;
+    // heroFontSize и sectionMinHeight — настройки PC-вёрстки.
+    // На мобильном просмотре пропускаем, чтобы не ломать вёрстку: пусть CSS
+    // (clamp в .hero h1, grid в .phone-layout) обрабатывает естественно.
+    var isPhoneView = !editMode && window.innerWidth <= 768;
+    if (state.heroFontSize && !isPhoneView) heroH1.style.fontSize = state.heroFontSize;
+    else heroH1.style.fontSize = '';
+    if (state.sectionMinHeight && !isPhoneView) mediaSection.style.minHeight = state.sectionMinHeight;
+    else mediaSection.style.minHeight = '';
 
     if (state.items) {
       mediaSection.querySelectorAll('.media-wrapper, .text-block').forEach(function (el) { el.remove(); });
@@ -1234,6 +1242,34 @@
     }
   });
 
+  // --- Авто-переключение layout при ресайзе/повороте устройства ---
+  // Только для просмотра (не в редакторе) — переключаем PC↔Phone, когда
+  // ширина пересекает 768px. Также пересчитываем heroFontSize/sectionMinHeight.
+  var lastResizeLayout = window.innerWidth <= 768 ? 'phone' : 'pc';
+  var resizeDebounce = null;
+  window.addEventListener('resize', function () {
+    if (editMode) return;
+    clearTimeout(resizeDebounce);
+    resizeDebounce = setTimeout(function () {
+      var newLayout = window.innerWidth <= 768 ? 'phone' : 'pc';
+      if (newLayout === lastResizeLayout) return;
+      lastResizeLayout = newLayout;
+      currentLayout = newLayout;
+      loadPositionsFromData(newLayout);
+      if (newLayout === 'phone') mediaSection.classList.add('phone-layout');
+      else mediaSection.classList.remove('phone-layout');
+      // Применить/снять PC-only глобальные настройки
+      var raw = localStorage.getItem('portfolio-state');
+      if (!raw) return;
+      try {
+        var s = JSON.parse(raw);
+        var isPhoneView = newLayout === 'phone';
+        heroH1.style.fontSize = (s.heroFontSize && !isPhoneView) ? s.heroFontSize : '';
+        mediaSection.style.minHeight = (s.sectionMinHeight && !isPhoneView) ? s.sectionMinHeight : '';
+      } catch (e) {}
+    }, 150);
+  });
+
   // --- Превью телефона ---
   var phonePreview = document.getElementById('phone-preview');
   var phoneIframe = document.getElementById('phone-iframe');
@@ -1320,6 +1356,10 @@
       });
   }
 
+  function revealContent() {
+    if (siteContent) siteContent.classList.add('ready');
+  }
+
   // Всегда пытаемся загрузить с Worker, чтобы увидеть изменения других пользователей
   fetchRemoteState()
     .then(function (remoteState) {
@@ -1355,6 +1395,7 @@
         console.log('[Portfolio Init] ⚠️ Both remote and local are empty');
       }
       initAllItems();
+      revealContent();
     })
     .catch(function (err) {
       // Worker недоступен или нет конфига — используем localStorage как fallback
@@ -1367,5 +1408,6 @@
         console.log('[Portfolio Init] No fallback available');
       }
       initAllItems();
+      revealContent();
     });
 })();
