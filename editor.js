@@ -125,6 +125,7 @@
   // --- Пароль ---
   var EDITOR_HASH = '2e0239faa7f60000af9320e200006f7a';
   var authenticated = false;
+  var editorPassword = ''; // храним пароль для авторизации в Worker'е
 
   function hashPassword(str) {
     var hash = 0;
@@ -148,19 +149,19 @@
   // --- Password modal ---
   var passwordModal = document.getElementById('password-modal');
   var passwordInput = document.getElementById('password-input');
-  var githubTokenInput = document.getElementById('github-token-input');
+  var workerUrlInput = document.getElementById('worker-url-input');
   var passwordError = document.getElementById('password-error');
   var passwordSubmit = document.getElementById('password-submit');
   var passwordCancel = document.getElementById('password-cancel');
-  var githubToken = localStorage.getItem('gh-token') || '';
   var yosAccessKeyInput = document.getElementById('yos-access-key');
   var yosSecretKeyInput = document.getElementById('yos-secret-key');
   var yosAccessKey = localStorage.getItem('yos-access-key') || '';
   var yosSecretKey = localStorage.getItem('yos-secret-key') || '';
+  var savedWorkerUrl = localStorage.getItem('worker-url') || '';
 
   function showPasswordModal() {
     passwordInput.value = '';
-    githubTokenInput.value = githubToken;
+    workerUrlInput.value = savedWorkerUrl;
     yosAccessKeyInput.value = yosAccessKey;
     yosSecretKeyInput.value = yosSecretKey;
     passwordError.textContent = '';
@@ -183,11 +184,12 @@
       return;
     }
     authenticated = true;
-    // Сохранить GitHub токен
-    var token = githubTokenInput.value.trim();
-    if (token) {
-      githubToken = token;
-      localStorage.setItem('gh-token', token);
+    editorPassword = pwd; // понадобится для X-Editor-Password в запросах к Worker'у
+    // Сохранить Worker URL (опциональный override; основной URL в cloud-config.js)
+    var url = workerUrlInput.value.trim();
+    if (url) {
+      WORKER_URL = url;
+      localStorage.setItem('worker-url', url);
     }
     // Сохранить YOS ключи
     var ak = yosAccessKeyInput.value.trim();
@@ -203,7 +205,7 @@
     if (e.key === 'Enter') tryPassword();
     if (e.key === 'Escape') hidePasswordModal();
   });
-  githubTokenInput.addEventListener('keydown', function (e) {
+  workerUrlInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') tryPassword();
   });
   yosAccessKeyInput.addEventListener('keydown', function (e) {
@@ -222,6 +224,9 @@
     document.body.classList.add('edit-mode');
     toggleBtn.textContent = 'Выйти из редактора';
     panel.style.display = 'flex';
+    
+    // Начать периодическую проверку обновлений с сервера
+    startSyncCheck();
   }
 
   // --- Toggle ---
@@ -236,6 +241,7 @@
     panel.style.display = editMode ? 'flex' : 'none';
     if (!editMode) {
       deselect();
+      stopSyncCheck(); // Прекратить проверку обновлений
       // При выходе из редактора — показать layout для текущего устройства
       storePositionsToData(currentLayout);
       var deviceLayout = window.innerWidth <= 768 ? 'phone' : 'pc';
@@ -563,66 +569,54 @@
 
   // --- Reset ---
   btnReset.addEventListener('click', function () {
-    if (confirm('Сбросить все изменения? Вернуть сайт к исходному виду?')) {
-      localStorage.removeItem('portfolio-state');
-      if (githubToken) {
-        // Удаляем state.json из репо
-        fetch(ghApiUrl('data/state.json'), { headers: ghHeaders() })
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (f) {
-            if (f && f.sha) {
-              return fetch(ghApiUrl('data/state.json'), {
-                method: 'DELETE',
-                headers: ghHeaders(),
-                body: JSON.stringify({ message: 'Reset state', sha: f.sha, branch: GITHUB_BRANCH })
-              });
-            }
-          }).catch(function () {});
-      }
+    if (!confirm('Сбросить все изменения? Вернуть сайт к исходному виду?')) return;
+    localStorage.removeItem('portfolio-state');
+    var canCallWorker = WORKER_URL && !WORKER_URL.includes('YOUR_USERNAME') && editorPassword;
+    if (!canCallWorker) {
       location.reload();
+      return;
     }
+    fetch(WORKER_URL + '/api/reset', {
+      method: 'POST',
+      headers: { 'X-Editor-Password': editorPassword },
+    })
+      .catch(function (err) { console.error('[Portfolio Reset] Worker error:', err); })
+      .finally(function () { location.reload(); });
   });
 
-  // --- GitHub API helpers ---
-  function ghApiUrl(path) {
-    return 'https://api.github.com/repos/' + GITHUB_REPO + '/contents/' + path;
+  // --- Cloudflare Worker ---
+  // WORKER_URL объявлен в cloud-config.js. Опциональный override из localStorage:
+  (function () {
+    var saved = localStorage.getItem('worker-url');
+    if (saved) WORKER_URL = saved;
+  })();
+
+  function workerConfigured() {
+    return WORKER_URL && !WORKER_URL.includes('YOUR_USERNAME');
   }
 
-  function ghHeaders() {
-    return {
-      'Authorization': 'token ' + githubToken,
-      'Content-Type': 'application/json',
-      'Accept': 'application/vnd.github.v3+json'
-    };
-  }
-
-  // Загрузить файл в репозиторий через GitHub API
-  function ghUploadFile(path, base64Content, message) {
-    // Сначала проверяем существует ли файл (для получения sha)
-    return fetch(ghApiUrl(path), { headers: ghHeaders() })
-      .then(function (res) {
-        if (res.ok) return res.json();
-        return null;
-      })
-      .then(function (existing) {
-        var body = {
-          message: message || 'Upload ' + path,
-          content: base64Content,
-          branch: GITHUB_BRANCH
-        };
-        if (existing && existing.sha) {
-          body.sha = existing.sha;
-        }
-        return fetch(ghApiUrl(path), {
-          method: 'PUT',
-          headers: ghHeaders(),
-          body: JSON.stringify(body)
-        });
-      })
-      .then(function (res) {
-        if (!res.ok) throw new Error('GitHub upload failed: ' + res.status);
-        return res.json();
+  function saveStateToWorker(state) {
+    if (!workerConfigured()) {
+      return Promise.reject(new Error('Cloudflare Worker URL не настроен (cloud-config.js)'));
+    }
+    if (!editorPassword) {
+      return Promise.reject(new Error('Не залогинены в редакторе'));
+    }
+    return fetch(WORKER_URL + '/api/save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Editor-Password': editorPassword,
+      },
+      body: JSON.stringify({ state: state }),
+    }).then(function (res) {
+      if (res.ok) return res.json();
+      return res.json().then(function (e) {
+        throw new Error(e.error || 'HTTP ' + res.status);
+      }, function () {
+        throw new Error('HTTP ' + res.status);
       });
+    });
   }
 
   // --- Yandex Object Storage (S3) helpers ---
@@ -875,6 +869,73 @@
   }
 
   // --- Save / Load ---
+  var lastSavedState = null;
+  var syncCheckInterval = null;
+  var remoteUpdateNotified = false;
+
+  // Функция для периодической проверки обновлений
+  function startSyncCheck() {
+    if (syncCheckInterval) clearInterval(syncCheckInterval);
+    syncCheckInterval = setInterval(checkForRemoteUpdates, 5000); // Проверяем каждые 5 секунд
+    console.log('[Portfolio Sync] Started remote update check every 5 seconds');
+  }
+
+  function stopSyncCheck() {
+    if (syncCheckInterval) {
+      clearInterval(syncCheckInterval);
+      syncCheckInterval = null;
+    }
+  }
+
+  // --- UI elements for sync status ---
+  var syncStatusEl = document.getElementById('sync-status');
+  
+  function showSyncStatus(message, duration) {
+    if (!syncStatusEl) return;
+    syncStatusEl.textContent = message;
+    syncStatusEl.style.display = 'block';
+    if (duration) {
+      setTimeout(function () {
+        syncStatusEl.style.display = 'none';
+      }, duration);
+    }
+  }
+
+  function checkForRemoteUpdates() {
+    if (!editMode || !workerConfigured()) return;
+    
+    showSyncStatus('🔄 Проверка обновлений...', 0);
+    
+    fetch(WORKER_URL + '/api/fetch?t=' + Date.now())
+      .then(function (res) {
+        if (!res.ok) throw new Error('No remote state');
+        return res.json();
+      })
+      .then(function (remoteState) {
+        syncStatusEl.style.display = 'none';
+        if (!remoteState || !remoteState.items) return;
+        
+        var localState = JSON.parse(localStorage.getItem('portfolio-state') || '{}');
+        var remoteTime = remoteState.savedAt || 0;
+        var localTime = (localState && localState.savedAt) || 0;
+        
+        if (remoteTime > localTime && JSON.stringify(remoteState) !== JSON.stringify(lastSavedState)) {
+          console.log('[Portfolio Sync] ⬇️ Remote update detected! Remote time:', new Date(remoteTime).toLocaleTimeString());
+          remoteUpdateNotified = true;
+          showSyncStatus('⬇️ Получены изменения от другого пользователя...', 2000);
+          alert('Внимание! Изменения были сделаны другим пользователем.\nЗагружу новую версию...');
+          applyState(remoteState);
+          localStorage.setItem('portfolio-state', JSON.stringify(remoteState));
+          lastSavedState = JSON.parse(JSON.stringify(remoteState));
+          updatePanel();
+        }
+      })
+      .catch(function (err) {
+        console.log('[Portfolio Sync] Remote check error:', err.message);
+        syncStatusEl.style.display = 'none';
+      });
+  }
+
   function saveState() {
     // Сначала сохраняем текущие позиции в data-атрибуты текущего layout
     storePositionsToData(currentLayout);
@@ -955,17 +1016,35 @@
       layout: currentLayout,
     };
     state.savedAt = Date.now();
+    lastSavedState = JSON.parse(JSON.stringify(state)); // Сохраняем для проверки конфликтов
     localStorage.setItem('portfolio-state', JSON.stringify(state));
-    console.log('[Portfolio Save] Saved to localStorage, items:', state.items.length, 'at:', new Date(state.savedAt).toLocaleTimeString());
+    console.log('[Portfolio Save] ✅ Saved to localStorage at:', new Date(state.savedAt).toLocaleTimeString(), 'items:', state.items.length);
 
-    // Сохраняем в GitHub (доступно всем посетителям)
-    if (githubToken && authenticated) {
-      var stateStr = JSON.stringify(state);
-      var base64State = btoa(unescape(encodeURIComponent(stateStr)));
-      ghUploadFile('data/state.json', base64State, 'Update portfolio state').catch(function (err) {
-        console.warn('GitHub save error:', err);
-      });
+    // Сохраняем через Cloudflare Worker (KV)
+    if (!workerConfigured()) {
+      console.warn('[Portfolio Save] ⚠️ Cloudflare Worker URL not configured — changes saved ONLY locally!');
+      showSyncStatus('⚠️ Worker не настроен: только локально', 5000);
+      alert('⚠️ Cloudflare Worker URL не установлен!\n\nОтредактируйте WORKER_URL в cloud-config.js\n\nИзменения сохранены только на этом устройстве.');
+      return;
     }
+
+    if (!authenticated) {
+      console.warn('[Portfolio Save] ❌ Not authenticated');
+      return;
+    }
+
+    showSyncStatus('⬆️ Загрузка на сервер...', 0);
+    saveStateToWorker(state)
+      .then(function () {
+        console.log('[Portfolio Save] ✅ Saved via Worker successfully');
+        showSyncStatus('✅ Синхронизировано!', 3000);
+        remoteUpdateNotified = false;
+      })
+      .catch(function (err) {
+        console.error('[Portfolio Save] ❌ Worker save error:', err);
+        showSyncStatus('❌ Ошибка синхронизации', 5000);
+        alert('❌ Ошибка сохранения через Worker:\n' + err.message + '\n\nПроверьте Worker URL и пароль (EDITOR_PASSWORD в Worker secrets).');
+      });
   }
 
   function applyState(state) {
@@ -1225,40 +1304,82 @@
   });
 
   // --- Init ---
-  // Пробуем загрузить state.json из GitHub Pages, если нет — из localStorage
-  var stateUrl = 'https://' + GITHUB_REPO.split('/')[0] + '.github.io/' +
-                 GITHUB_REPO.split('/')[1] + '/data/state.json';
-
-  // Сначала проверяем localStorage — он всегда самый свежий для данного браузера
+  // Загружаем state через Cloudflare Worker (KV)
   var localRaw = localStorage.getItem('portfolio-state');
   var localState = null;
   if (localRaw) {
-    try { localState = JSON.parse(localRaw); } catch (e) { /* ignore */ }
+    try { localState = JSON.parse(localRaw); } catch (e) { console.error('Invalid localStorage state:', e); }
   }
 
-  console.log('[Portfolio Init] localStorage exists:', !!localRaw, 'has items:', !!(localState && localState.items), 'items count:', localState && localState.items ? localState.items.length : 0);
+  console.log('[Portfolio Init] ========== INITIALIZATION WITH CLOUDFLARE WORKER ==========');
+  console.log('[Portfolio Init] Worker URL:', WORKER_URL);
+  console.log('[Portfolio Init] localStorage exists:', !!localRaw);
+  console.log('[Portfolio Init] localStorage has items:', !!(localState && localState.items));
+  console.log('[Portfolio Init] localStorage items count:', localState && localState.items ? localState.items.length : 0);
+  if (localState) {
+    console.log('[Portfolio Init] localStorage saved at:', new Date(localState.savedAt).toLocaleTimeString());
+  }
 
-  if (localState && localState.items) {
-    // Есть локальное сохранение — используем его
-    console.log('[Portfolio Init] Using localStorage state');
-    applyState(localState);
-    initAllItems();
-  } else {
-    // Нет локального — загружаем с GitHub Pages
-    console.log('[Portfolio Init] No localStorage, fetching from GitHub Pages...');
-    fetch(stateUrl + '?t=' + Date.now())
+  // Функция для получения состояния с Worker
+  function fetchRemoteState() {
+    if (!workerConfigured()) {
+      console.warn('[Portfolio Init] Worker URL not configured, skipping remote fetch');
+      return Promise.reject(new Error('Worker URL not configured'));
+    }
+
+    return fetch(WORKER_URL + '/api/fetch?t=' + Date.now())
       .then(function (res) {
-        if (!res.ok) throw new Error('No remote state');
+        if (!res.ok) throw new Error('Remote fetch failed: ' + res.status);
         return res.json();
-      })
-      .then(function (data) {
-        if (data && data.items) {
-          applyState(data);
-        }
-        initAllItems();
-      })
-      .catch(function () {
-        initAllItems();
       });
   }
+
+  // Всегда пытаемся загрузить с Worker, чтобы увидеть изменения других пользователей
+  fetchRemoteState()
+    .then(function (remoteState) {
+      console.log('[Portfolio Init] Remote state loaded successfully via Worker');
+      console.log('[Portfolio Init] Remote has items:', !!(remoteState && remoteState.items));
+      console.log('[Portfolio Init] Remote items count:', remoteState && remoteState.items ? remoteState.items.length : 0);
+      if (remoteState) {
+        console.log('[Portfolio Init] Remote saved at:', new Date(remoteState.savedAt).toLocaleTimeString());
+      }
+
+      if (remoteState && remoteState.items) {
+        var remoteTime = remoteState.savedAt || 0;
+        var localTime = (localState && localState.savedAt) || 0;
+        console.log('[Portfolio Init] Comparing timestamps: Remote=' + remoteTime + ', Local=' + localTime);
+
+        if (localState && localState.items && localTime > remoteTime) {
+          // Локальное состояние новее — используем его
+          console.log('[Portfolio Init] ✅ Using localStorage (NEWER, diff=' + (localTime - remoteTime) + 'ms)');
+          applyState(localState);
+          lastSavedState = JSON.parse(JSON.stringify(localState));
+        } else {
+          // Удалённое состояние новее или равно — используем его
+          console.log('[Portfolio Init] ✅ Using remote state (NEWER or EQUAL, diff=' + (remoteTime - localTime) + 'ms)');
+          applyState(remoteState);
+          localStorage.setItem('portfolio-state', JSON.stringify(remoteState));
+          lastSavedState = JSON.parse(JSON.stringify(remoteState));
+        }
+      } else if (localState && localState.items) {
+        console.log('[Portfolio Init] ⚠️ Remote empty, using localStorage');
+        applyState(localState);
+        lastSavedState = JSON.parse(JSON.stringify(localState));
+      } else {
+        console.log('[Portfolio Init] ⚠️ Both remote and local are empty');
+      }
+      initAllItems();
+    })
+    .catch(function (err) {
+      // Worker недоступен или нет конфига — используем localStorage как fallback
+      console.warn('[Portfolio Init] ❌ Remote fetch failed:', err.message);
+      if (localState && localState.items) {
+        console.log('[Portfolio Init] Using localStorage as fallback');
+        applyState(localState);
+        lastSavedState = JSON.parse(JSON.stringify(localState));
+      } else {
+        console.log('[Portfolio Init] No fallback available');
+      }
+      initAllItems();
+    });
 })();

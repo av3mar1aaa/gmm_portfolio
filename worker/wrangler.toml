@@ -1,0 +1,8 @@
+name = "gmm-portfolio-sync"
+main = "src/index.js"
+compatibility_date = "2025-05-01"
+
+# После `wrangler kv namespace create PORTFOLIO_KV` подставьте сюда полученный id
+[[kv_namespaces]]
+binding = "PORTFOLIO_KV"
+id = "d6f571e6c75644c49edbdacf501ec3d2"
