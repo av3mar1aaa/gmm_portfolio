@@ -243,6 +243,7 @@
         mediaSection.classList.remove('phone-layout');
       }
       saveState();
+      flushWorkerSave(); // моментально отправить накопленные изменения
     }
   });
 
@@ -861,6 +862,12 @@
   var lastSavedState = null;
   var syncCheckInterval = null;
   var remoteUpdateNotified = false;
+  // Debounce записей в Worker — Cloudflare KV free tier = 1000 writes/day.
+  // localStorage сохраняется мгновенно, KV — только после 2 сек простоя.
+  var SAVE_DEBOUNCE_MS = 2000;
+  var pendingSaveState = null;
+  var saveDebounceTimer = null;
+  var lastSaveAttemptFailed = false;
 
   // Функция для периодической проверки обновлений
   function startSyncCheck() {
@@ -1004,34 +1011,48 @@
       layout: currentLayout,
     };
     state.savedAt = Date.now();
-    lastSavedState = JSON.parse(JSON.stringify(state)); // Сохраняем для проверки конфликтов
+    lastSavedState = JSON.parse(JSON.stringify(state));
     localStorage.setItem('portfolio-state', JSON.stringify(state));
-    console.log('[Portfolio Save] ✅ Saved to localStorage at:', new Date(state.savedAt).toLocaleTimeString(), 'items:', state.items.length);
+    console.log('[Portfolio Save] localStorage saved, items:', state.items.length);
 
-    // Сохраняем через Cloudflare Worker (KV)
-    if (!workerConfigured()) {
-      console.warn('[Portfolio Save] ⚠️ Cloudflare Worker URL not configured — changes saved ONLY locally!');
-      showSyncStatus('⚠️ Worker не настроен: только локально', 5000);
-      alert('⚠️ Cloudflare Worker URL не установлен!\n\nОтредактируйте WORKER_URL в cloud-config.js\n\nИзменения сохранены только на этом устройстве.');
-      return;
-    }
+    if (!workerConfigured() || !authenticated) return;
+    scheduleWorkerSave(state);
+  }
 
-    if (!authenticated) {
-      console.warn('[Portfolio Save] ❌ Not authenticated');
-      return;
-    }
+  function scheduleWorkerSave(state) {
+    pendingSaveState = state;
+    clearTimeout(saveDebounceTimer);
+    showSyncStatus('✏️ Изменения...', 0);
+    saveDebounceTimer = setTimeout(flushWorkerSave, SAVE_DEBOUNCE_MS);
+  }
 
-    showSyncStatus('⬆️ Загрузка на сервер...', 0);
+  function flushWorkerSave() {
+    clearTimeout(saveDebounceTimer);
+    saveDebounceTimer = null;
+    if (!pendingSaveState) return;
+    var state = pendingSaveState;
+    pendingSaveState = null;
+
+    showSyncStatus('⬆️ Сохранение...', 0);
     saveStateToWorker(state)
       .then(function () {
-        console.log('[Portfolio Save] ✅ Saved via Worker successfully');
-        showSyncStatus('✅ Синхронизировано!', 3000);
+        console.log('[Portfolio Save] ✅ Saved via Worker');
+        showSyncStatus('✅ Синхронизировано', 2500);
         remoteUpdateNotified = false;
+        lastSaveAttemptFailed = false;
       })
       .catch(function (err) {
         console.error('[Portfolio Save] ❌ Worker save error:', err);
-        showSyncStatus('❌ Ошибка синхронизации', 5000);
-        alert('❌ Ошибка сохранения через Worker:\n' + err.message + '\n\nПроверьте Worker URL и пароль (EDITOR_PASSWORD в Worker secrets).');
+        // Тихая обработка ошибки — без блокирующих alert'ов.
+        // При лимите KV (1000 writes/day) или сетевой ошибке оставляем
+        // изменения в localStorage; повторим при следующем saveState.
+        var msg = /limit exceeded/i.test(err.message)
+          ? '⏳ Лимит синхронизации исчерпан (сбросится в 00:00 UTC). Локально сохранено'
+          : '❌ Не удалось синхронизировать (сохранено локально)';
+        showSyncStatus(msg, 6000);
+        lastSaveAttemptFailed = true;
+        // Возвращаем state в очередь — следующий saveState или flush повторит
+        if (!pendingSaveState) pendingSaveState = state;
       });
   }
 
@@ -1239,6 +1260,25 @@
     if (e.key === 'Escape' && lightbox.style.display === 'flex') {
       lightbox.style.display = 'none';
       lightboxMedia.innerHTML = '';
+    }
+  });
+
+  // При закрытии вкладки — флашим накопленные изменения (sendBeacon синхронно)
+  window.addEventListener('beforeunload', function () {
+    if (saveDebounceTimer && pendingSaveState && workerConfigured() && editorPassword) {
+      try {
+        var blob = new Blob([JSON.stringify({ state: pendingSaveState })], { type: 'application/json' });
+        // sendBeacon не позволяет кастомные заголовки, поэтому используем fetch с keepalive
+        fetch(WORKER_URL + '/api/save', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Editor-Password': editorPassword,
+          },
+          body: blob,
+          keepalive: true,
+        });
+      } catch (e) {}
     }
   });
 
